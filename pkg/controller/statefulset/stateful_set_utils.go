@@ -404,3 +404,13 @@ func (ao ascendingOrdinal) Swap(i, j int) {
 func (ao ascendingOrdinal) Less(i, j int) bool {
 	return getOrdinal(ao[i]) < getOrdinal(ao[j])
 }
+
+func findPod(ordinal int, pods []*v1.Pod) *v1.Pod, error {
+    for _, pod := pods {
+        if getOrdinal(pod) == ordinal {
+            return pod, nil
+        }
+    }
+    return nil, fmt.Errorf("ordinal %d not found", ordinal)
+
+}
