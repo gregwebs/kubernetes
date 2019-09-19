@@ -29,7 +29,7 @@ import (
 	"time"
 
 	apps "k8s.io/api/apps/v1"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1588,7 +1588,7 @@ func (spc *fakeStatefulPodControl) SetDeleteStatefulPodError(err error, after in
 	spc.deletePodTracker.after = after
 }
 
-func (spc *fakeStatefulPodControl) setPodPending(set *apps.StatefulSet, ordinal int) ([]*v1.Pod, error) {
+func (spc *fakeStatefulPodControl) modifyPod(set *apps.StatefulSet, ordinal int, modify func(*v1.Pod)) ([]*v1.Pod, error) {
 	selector, err := metav1.LabelSelectorAsSelector(set.Spec.Selector)
 	if err != nil {
 		return nil, err
@@ -1597,56 +1597,34 @@ func (spc *fakeStatefulPodControl) setPodPending(set *apps.StatefulSet, ordinal 
 	if err != nil {
 		return nil, err
 	}
-	if 0 > ordinal || ordinal >= len(pods) {
-		return nil, fmt.Errorf("ordinal %d out of range [0,%d)", ordinal, len(pods))
+	pod, err := findPod(ordinal, pods)
+	if err != nil {
+		return nil, err
 	}
-	sort.Sort(ascendingOrdinal(pods))
-	pod := pods[ordinal].DeepCopy()
-	pod.Status.Phase = v1.PodPending
+	pod = pod.DeepCopy()
+	modify(pod)
 	fakeResourceVersion(pod)
 	spc.podsIndexer.Update(pod)
 	return spc.podsLister.Pods(set.Namespace).List(selector)
+}
+
+func (spc *fakeStatefulPodControl) setPodPending(set *apps.StatefulSet, ordinal int) ([]*v1.Pod, error) {
+	return spc.modifyPod(set, ordinal, func(pod *v1.Pod) {
+		pod.Status.Phase = v1.PodPending
+	})
 }
 
 func (spc *fakeStatefulPodControl) setPodRunning(set *apps.StatefulSet, ordinal int) ([]*v1.Pod, error) {
-	selector, err := metav1.LabelSelectorAsSelector(set.Spec.Selector)
-	if err != nil {
-		return nil, err
-	}
-	pods, err := spc.podsLister.Pods(set.Namespace).List(selector)
-	if err != nil {
-		return nil, err
-	}
-	if 0 > ordinal || ordinal >= len(pods) {
-		return nil, fmt.Errorf("ordinal %d out of range [0,%d)", ordinal, len(pods))
-	}
-	sort.Sort(ascendingOrdinal(pods))
-	pod := pods[ordinal].DeepCopy()
-	pod.Status.Phase = v1.PodRunning
-	fakeResourceVersion(pod)
-	spc.podsIndexer.Update(pod)
-	return spc.podsLister.Pods(set.Namespace).List(selector)
+	return spc.modifyPod(set, ordinal, func(pod *v1.Pod) {
+		pod.Status.Phase = v1.PodRunning
+	})
 }
 
 func (spc *fakeStatefulPodControl) setPodReady(set *apps.StatefulSet, ordinal int) ([]*v1.Pod, error) {
-	selector, err := metav1.LabelSelectorAsSelector(set.Spec.Selector)
-	if err != nil {
-		return nil, err
-	}
-	pods, err := spc.podsLister.Pods(set.Namespace).List(selector)
-	if err != nil {
-		return nil, err
-	}
-	if 0 > ordinal || ordinal >= len(pods) {
-		return nil, fmt.Errorf("ordinal %d out of range [0,%d)", ordinal, len(pods))
-	}
-	sort.Sort(ascendingOrdinal(pods))
-	pod := pods[ordinal].DeepCopy()
-	condition := v1.PodCondition{Type: v1.PodReady, Status: v1.ConditionTrue}
-	podutil.UpdatePodCondition(&pod.Status, &condition)
-	fakeResourceVersion(pod)
-	spc.podsIndexer.Update(pod)
-	return spc.podsLister.Pods(set.Namespace).List(selector)
+	return spc.modifyPod(set, ordinal, func(pod *v1.Pod) {
+		condition := v1.PodCondition{Type: v1.PodReady, Status: v1.ConditionTrue}
+		podutil.UpdatePodCondition(&pod.Status, &condition)
+	})
 }
 
 func (spc *fakeStatefulPodControl) addTerminatingPod(set *apps.StatefulSet, ordinal int) ([]*v1.Pod, error) {
